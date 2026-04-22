@@ -1,10 +1,13 @@
 import { prisma } from "@/lib/prisma";
-import { AdminToggleAdmin } from "@/components/admin/toggle-admin";
-import { AdminDeleteUser } from "@/components/admin/delete-user";
+import { auth } from "@/lib/auth";
+import { UserActions } from "@/components/admin/user-actions";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminUsersPage() {
+  const session = await auth();
+  const currentUserId = session?.user?.id ?? "";
+
   const users = await prisma.user.findMany({
     orderBy: { createdAt: "desc" },
     select: {
@@ -12,6 +15,7 @@ export default async function AdminUsersPage() {
       name: true,
       email: true,
       isAdmin: true,
+      bannedAt: true,
       createdAt: true,
       _count: {
         select: {
@@ -27,7 +31,9 @@ export default async function AdminUsersPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-gray-100">Users</h1>
-        <p className="text-sm text-gray-500 mt-1">{users.length} total accounts</p>
+        <p className="text-sm text-gray-500 mt-1">
+          {users.length} total · {users.filter(u => u.bannedAt).length} banned
+        </p>
       </div>
 
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
@@ -39,15 +45,25 @@ export default async function AdminUsersPage() {
               <th className="px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider text-center">Courses</th>
               <th className="px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider text-center">Sessions</th>
               <th className="px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider text-center">Quizzes</th>
-              <th className="px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider text-center">Role</th>
+              <th className="px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider text-center">Status</th>
               <th className="px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
             {users.map((u) => (
-              <tr key={u.id} className="border-b border-gray-800/50 last:border-0 hover:bg-gray-800/20 transition-colors">
+              <tr
+                key={u.id}
+                className={`border-b border-gray-800/50 last:border-0 transition-colors ${
+                  u.bannedAt ? "bg-red-500/5 hover:bg-red-500/10" : "hover:bg-gray-800/20"
+                }`}
+              >
                 <td className="px-5 py-3.5">
-                  <div className="font-medium text-gray-200">{u.name ?? <span className="text-gray-600">—</span>}</div>
+                  <div className="font-medium text-gray-200">
+                    {u.name ?? <span className="text-gray-600">—</span>}
+                    {u.id === currentUserId && (
+                      <span className="ml-2 text-xs text-gray-600">(you)</span>
+                    )}
+                  </div>
                   <div className="text-gray-500 text-xs mt-0.5">{u.email}</div>
                 </td>
                 <td className="px-5 py-3.5 text-gray-400 text-xs whitespace-nowrap">
@@ -57,17 +73,22 @@ export default async function AdminUsersPage() {
                 <td className="px-5 py-3.5 text-center text-gray-300">{u._count.chatSessions}</td>
                 <td className="px-5 py-3.5 text-center text-gray-300">{u._count.quizAttempts}</td>
                 <td className="px-5 py-3.5 text-center">
-                  {u.isAdmin ? (
+                  {u.bannedAt ? (
+                    <span className="px-2 py-0.5 bg-red-500/20 text-red-400 rounded-full text-xs font-medium">banned</span>
+                  ) : u.isAdmin ? (
                     <span className="px-2 py-0.5 bg-violet-500/20 text-violet-400 rounded-full text-xs font-medium">admin</span>
                   ) : (
                     <span className="px-2 py-0.5 bg-gray-800 text-gray-500 rounded-full text-xs">student</span>
                   )}
                 </td>
                 <td className="px-5 py-3.5">
-                  <div className="flex items-center justify-end gap-2">
-                    <AdminToggleAdmin userId={u.id} isAdmin={u.isAdmin} />
-                    <AdminDeleteUser userId={u.id} email={u.email} />
-                  </div>
+                  <UserActions
+                    userId={u.id}
+                    email={u.email}
+                    isAdmin={u.isAdmin}
+                    isBanned={!!u.bannedAt}
+                    isSelf={u.id === currentUserId}
+                  />
                 </td>
               </tr>
             ))}

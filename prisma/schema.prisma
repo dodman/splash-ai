@@ -67,6 +67,7 @@ model User {
   image          String?
   emailVerified  DateTime?
   isAdmin        Boolean   @default(false)
+  bannedAt       DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 

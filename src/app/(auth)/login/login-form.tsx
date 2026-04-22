@@ -28,10 +28,13 @@ export function LoginForm() {
         redirect: false,
       });
       if (res?.error) {
+        const banned = res.error.includes("BANNED");
         toast({
           variant: "destructive",
-          title: "Sign in failed",
-          description: "Check your email and password and try again.",
+          title: banned ? "Account suspended" : "Sign in failed",
+          description: banned
+            ? "Your account has been suspended. Contact support if you think this is a mistake."
+            : "Check your email and password and try again.",
         });
         return;
       }

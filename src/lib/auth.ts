@@ -38,6 +38,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           where: { email: parsed.data.email.toLowerCase() },
         });
         if (!user?.hashedPassword) return null;
+        if (user.bannedAt) throw new Error("BANNED");
 
         const ok = await bcrypt.compare(parsed.data.password, user.hashedPassword);
         if (!ok) return null;
