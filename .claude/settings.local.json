@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(mv \"/Users/macbook/Desktop/Splash AI/src/app/\\(app\\)/\\(fullscreen\\)/chat/[sessionId]/[sessionId]/page.tsx\" \"/Users/macbook/Desktop/Splash AI/src/app/\\(app\\)/\\(fullscreen\\)/chat/[sessionId]/page.tsx\")",
+      "Bash(rmdir \"/Users/macbook/Desktop/Splash AI/src/app/\\(app\\)/\\(fullscreen\\)/chat/[sessionId]/[sessionId]\")",
+      "Bash(openssl rand *)",
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "Bash(git --version)",
+      "Bash(gh --version)",
+      "Bash(vercel --version)"
+    ]
+  }
+}
