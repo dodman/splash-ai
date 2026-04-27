@@ -1,7 +1,10 @@
+// ============================================================================
+// Tutor prompt builder — used when mode ∈ {LEARN, PRACTICE, REVISION, DIRECT}
+// ============================================================================
 import type { TutorMode, StudentLevel, ResponseLength } from "@prisma/client";
 import type { RetrievedChunk } from "@/types";
 import { BASE_TUTOR_IDENTITY, CITATION_RULES } from "./base";
-import { MODE_INSTRUCTIONS } from "./modes";
+import { TUTOR_MODE_INSTRUCTIONS } from "./modes";
 import { formatSourcesForPrompt } from "@/services/retrievalService";
 
 interface TutorPromptContext {
@@ -14,28 +17,36 @@ interface TutorPromptContext {
 }
 
 const LENGTH_GUIDANCE: Record<ResponseLength, string> = {
-  CONCISE: "Keep replies short — aim for 2–4 sentences or a single tight list. No preamble.",
-  NORMAL: "Aim for a focused reply of 3–6 short paragraphs or an equivalent list.",
-  DETAILED: "Go deep when useful. Up to ~500 words. Include worked examples where they aid understanding.",
+  CONCISE:
+    "Keep replies short — aim for 2–4 sentences or a tight list. No preamble. No padding.",
+  NORMAL:
+    "Aim for a focused reply of 3–6 short paragraphs or equivalent. Trim anything that doesn't add value.",
+  DETAILED:
+    "Go deep when useful — up to ~600 words. Include worked examples, edge cases, and derivations where they add understanding.",
 };
 
 const LEVEL_GUIDANCE: Record<StudentLevel, string> = {
-  BEGINNER: "Student is a BEGINNER. Use plain language. Define jargon the first time you use it. Go slow.",
-  INTERMEDIATE: "Student is at INTERMEDIATE level. Assume foundations. Explain intermediate concepts fully; reference basics only if needed.",
-  ADVANCED: "Student is ADVANCED. You can use technical vocabulary without defining. Focus on subtle distinctions and edge cases.",
+  BEGINNER:
+    "STUDENT LEVEL: Beginner. Use plain language. Define all jargon on first use. Build from first principles. Go slow.",
+  INTERMEDIATE:
+    "STUDENT LEVEL: Intermediate. Assume foundational knowledge. Explain intermediate concepts fully. Reference basics only when the student seems confused.",
+  ADVANCED:
+    "STUDENT LEVEL: Advanced. Use technical vocabulary freely. Focus on subtleties, edge cases, and nuances. Assume competence.",
 };
 
 export function composeTutorPrompt(ctx: TutorPromptContext): {
   system: string;
   contextMessage: string;
 } {
+  const modeInstruction = TUTOR_MODE_INSTRUCTIONS[ctx.mode] ?? "";
+
   const courseLine = ctx.course
     ? `COURSE: ${ctx.course.title} (${ctx.course.code}) — ${ctx.course.degree}.`
-    : `COURSE: (none selected — student is asking a general question)`;
+    : "COURSE: (none selected — student is asking a general question)";
 
   const weakLine =
     ctx.weakTopics && ctx.weakTopics.length > 0
-      ? `WEAK TOPICS the student has struggled with recently: ${ctx.weakTopics.join(", ")}.\nWhen natural, tie in to these topics for reinforcement.`
+      ? `WEAK TOPICS the student has struggled with recently: ${ctx.weakTopics.join(", ")}.\nWhen natural, tie these in for reinforcement.`
       : "";
 
   const system = [
@@ -43,7 +54,7 @@ export function composeTutorPrompt(ctx: TutorPromptContext): {
     "",
     CITATION_RULES,
     "",
-    MODE_INSTRUCTIONS[ctx.mode],
+    modeInstruction,
     "",
     LEVEL_GUIDANCE[ctx.level],
     "",
@@ -52,12 +63,14 @@ export function composeTutorPrompt(ctx: TutorPromptContext): {
     .filter(Boolean)
     .join("\n\n");
 
+  const sourcesText = formatSourcesForPrompt(ctx.retrievedChunks);
+
   const contextMessage = [
     courseLine,
     weakLine,
     "",
-    "SOURCES from the student's uploaded materials (use these first):",
-    formatSourcesForPrompt(ctx.retrievedChunks),
+    "SOURCES from the student's uploaded materials (prioritise these):",
+    sourcesText || "(no materials uploaded yet — answer from general knowledge and note this)",
   ]
     .filter((s) => s !== "")
     .join("\n");

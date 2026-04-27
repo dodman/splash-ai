@@ -18,7 +18,7 @@ import { Button } from "./ui/button";
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/courses", label: "Courses", icon: BookOpen },
-  { href: "/chat", label: "Tutor", icon: MessagesSquare },
+  { href: "/chat", label: "Chats", icon: MessagesSquare },
   { href: "/quiz", label: "Quizzes", icon: ListChecks },
   { href: "/progress", label: "Progress", icon: BarChart3 },
   { href: "/settings", label: "Settings", icon: Settings },
@@ -41,9 +41,9 @@ export function Sidebar({ className, onNavigate }: { className?: string; onNavig
 
       <div className="px-4">
         <Button asChild variant="gradient" className="w-full" onClick={onNavigate}>
-          <Link href="/chat?new=1">
+          <Link href="/chat">
             <Plus className="mr-1" />
-            New tutor chat
+            New chat
           </Link>
         </Button>
       </div>
@@ -77,9 +77,9 @@ export function Sidebar({ className, onNavigate }: { className?: string; onNavig
 
       <div className="px-6 pb-6">
         <div className="rounded-xl bg-gradient-brand/10 border border-primary/20 p-3">
-          <p className="text-xs font-medium text-foreground">Grounded in your notes</p>
+          <p className="text-xs font-medium text-foreground">9 AI modes</p>
           <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
-            Splash cites the specific pages of your uploaded materials. Never hallucinated.
+            Tutor · Code · Write · Research · Business and more. Switch mode any time.
           </p>
         </div>
       </div>

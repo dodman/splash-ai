@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { MODE_META, type TutorMode } from "@/lib/modes";
+import { MODE_META, TUTOR_MODES, ASSISTANT_MODES, isTutorMode, type TutorMode } from "@/lib/modes";
 
 type Course = { id: string; title: string; code: string; materialsCount: number };
 
@@ -31,14 +31,16 @@ export function NewChatLauncher({
   const [courseId, setCourseId] = useState<string>(
     defaultCourseId || courses[0]?.id || ""
   );
-  const [mode, setMode] = useState<TutorMode>("LEARN");
+  const [mode, setMode] = useState<TutorMode>("GENERAL");
+
+  const needsCourse = isTutorMode(mode);
 
   const go = () => {
-    if (courses.length === 0) {
+    if (needsCourse && courses.length === 0) {
       toast({
         variant: "destructive",
         title: "No courses yet",
-        description: "Create a course first so the tutor has materials to work with.",
+        description: "Create a course first so the tutor can cite your materials.",
       });
       return;
     }
@@ -48,7 +50,7 @@ export function NewChatLauncher({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            courseId: courseId || null,
+            courseId: needsCourse ? (courseId || null) : null,
             mode,
           }),
         });
@@ -71,77 +73,111 @@ export function NewChatLauncher({
 
   return (
     <div className="space-y-5">
+      {/* ── Tutor modes ───────────────────────────────────────────── */}
       <div className="space-y-2">
-        <Label htmlFor="course">Course</Label>
-        <Select value={courseId} onValueChange={setCourseId}>
-          <SelectTrigger id="course" disabled={courses.length === 0}>
-            <SelectValue
-              placeholder={courses.length === 0 ? "No courses available" : "Pick a course"}
-            />
-          </SelectTrigger>
-          <SelectContent>
-            {courses.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.code} · {c.title}
-                {c.materialsCount === 0 ? " (no materials yet)" : ""}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="space-y-2">
-        <Label>Tutor mode</Label>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {(Object.keys(MODE_META) as TutorMode[]).map((m) => {
-            const meta = MODE_META[m];
-            const Icon = meta.icon;
-            return (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setMode(m)}
-                className={cn(
-                  "group flex items-start gap-3 rounded-xl border p-3 text-left transition-all",
-                  mode === m
-                    ? "border-primary/60 bg-primary/5 shadow-sm shadow-primary/10"
-                    : "hover:border-primary/30 hover:bg-accent"
-                )}
-              >
-                <div
-                  className={cn(
-                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
-                    mode === m
-                      ? "bg-gradient-brand text-white"
-                      : "bg-muted text-muted-foreground"
-                  )}
-                >
-                  <Icon className="h-4 w-4" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium">{meta.label}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">{meta.tagline}</p>
-                </div>
-              </button>
-            );
-          })}
+        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Tutor modes — grounded in your notes
+        </Label>
+        <div className="grid grid-cols-2 gap-1.5">
+          {TUTOR_MODES.map((m) => (
+            <ModeCard key={m} mode={m} selected={mode === m} onSelect={setMode} />
+          ))}
         </div>
       </div>
 
+      {/* Course picker (only for tutor modes) */}
+      {needsCourse && (
+        <div className="space-y-2">
+          <Label htmlFor="course">Course</Label>
+          <Select
+            value={courseId}
+            onValueChange={setCourseId}
+            disabled={courses.length === 0}
+          >
+            <SelectTrigger id="course">
+              <SelectValue
+                placeholder={
+                  courses.length === 0 ? "No courses — create one first" : "Pick a course"
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {courses.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.code} · {c.title}
+                  {c.materialsCount === 0 ? " (no materials yet)" : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {/* ── Assistant modes ────────────────────────────────────────── */}
+      <div className="space-y-2">
+        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          AI assistant — general purpose
+        </Label>
+        <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+          {ASSISTANT_MODES.map((m) => (
+            <ModeCard key={m} mode={m} selected={mode === m} onSelect={setMode} />
+          ))}
+        </div>
+      </div>
+
+      {/* ── Launch button ──────────────────────────────────────────── */}
       <Button
         variant="gradient"
         size="lg"
         className="w-full"
         onClick={go}
-        disabled={pending || courses.length === 0}
+        disabled={pending || (needsCourse && courses.length === 0)}
       >
         {pending ? (
           <Loader2 className="h-4 w-4 animate-spin" />
         ) : (
           <Sparkles className="h-4 w-4" />
         )}
-        Start tutoring
+        {needsCourse ? "Start tutor chat" : "Start chat"}
       </Button>
     </div>
+  );
+}
+
+function ModeCard({
+  mode,
+  selected,
+  onSelect,
+}: {
+  mode: TutorMode;
+  selected: boolean;
+  onSelect: (m: TutorMode) => void;
+}) {
+  const meta = MODE_META[mode];
+  const Icon = meta.icon;
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(mode)}
+      className={cn(
+        "group flex items-start gap-2 rounded-xl border p-2.5 text-left transition-all",
+        selected
+          ? "border-primary/60 bg-primary/5 shadow-sm shadow-primary/10"
+          : "hover:border-primary/30 hover:bg-accent"
+      )}
+    >
+      <div
+        className={cn(
+          "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg",
+          selected ? "bg-gradient-brand text-white" : "bg-muted text-muted-foreground"
+        )}
+      >
+        <Icon className="h-3.5 w-3.5" />
+      </div>
+      <div className="min-w-0">
+        <p className="text-xs font-semibold leading-tight">{meta.label}</p>
+        <p className="mt-0.5 truncate text-[10px] text-muted-foreground">{meta.tagline}</p>
+      </div>
+    </button>
   );
 }

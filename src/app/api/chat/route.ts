@@ -16,7 +16,7 @@ export const maxDuration = 60;
 
 const bodySchema = z.object({
   sessionId: z.string().cuid(),
-  message: z.string().trim().min(1).max(8000),
+  message: z.string().trim().min(1).max(12000), // raised limit for pasted code/text
 });
 
 export async function POST(req: Request) {
@@ -29,18 +29,18 @@ export async function POST(req: Request) {
 
     await persistUserMessage({ sessionId, content: message });
 
-    const { session, system, messages, citations } = await buildTutorContext({
+    const { session, system, messages, citations, mode } = await buildTutorContext({
       userId,
       sessionId,
       userMessage: message,
     });
 
-    // If this is the first real user message, generate a better title in the background.
+    // Auto-generate a better title on the first user message
     const userMessageCount = await prisma.chatMessage.count({
       where: { sessionId, role: "USER" },
     });
     if (userMessageCount === 1) {
-      generateSessionTitle(message)
+      generateSessionTitle(message, mode)
         .then((title) =>
           prisma.chatSession.update({ where: { id: session.id }, data: { title } })
         )
@@ -48,40 +48,52 @@ export async function POST(req: Request) {
     }
 
     const ai = getAIProvider();
+    // Smart model routing: smarter model for CODE & RESEARCH, fast model for rest
+    const selectedModel = ai.selectModel(mode, message.length);
 
     const encoder = new TextEncoder();
     let assembled = "";
+    let tokenCount = 0;
+
+    const streamIterable = ai.chatStream({
+      system,
+      messages,
+      temperature: 0.5,
+      model: selectedModel,
+    });
 
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          // First frame: citation metadata as a JSON event.
-          const meta = JSON.stringify({ type: "meta", citations });
+          // First frame: citation metadata + model used (for debugging)
+          const meta = JSON.stringify({ type: "meta", citations, model: selectedModel });
           controller.enqueue(encoder.encode(`event: meta\ndata: ${meta}\n\n`));
 
-          for await (const delta of ai.chatStream({
-            system,
-            messages,
-            temperature: 0.5,
-          })) {
+          for await (const delta of streamIterable) {
             assembled += delta;
             const payload = JSON.stringify({ type: "delta", text: delta });
             controller.enqueue(encoder.encode(`event: delta\ndata: ${payload}\n\n`));
+          }
+
+          // Capture token usage if available
+          if ("usagePromise" in streamIterable && streamIterable.usagePromise) {
+            const usage = await streamIterable.usagePromise.catch(() => null);
+            if (usage) tokenCount = usage.totalTokens;
           }
 
           await persistAssistantMessage({
             sessionId: session.id,
             content: assembled,
             citations,
+            tokensUsed: tokenCount || undefined,
           });
 
-          const done = JSON.stringify({ type: "done" });
+          const done = JSON.stringify({ type: "done", tokensUsed: tokenCount || undefined });
           controller.enqueue(encoder.encode(`event: done\ndata: ${done}\n\n`));
         } catch (err) {
           const msg = err instanceof Error ? err.message : "Streaming failed";
           const errPayload = JSON.stringify({ type: "error", error: msg });
           controller.enqueue(encoder.encode(`event: error\ndata: ${errPayload}\n\n`));
-          // Persist whatever we have so the user doesn't lose it.
           if (assembled) {
             await persistAssistantMessage({
               sessionId,

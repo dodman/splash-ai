@@ -66,7 +66,7 @@ export default async function DashboardPage() {
           <Button asChild variant="gradient" size="lg">
             <Link href="/chat">
               <Sparkles className="h-4 w-4" />
-              New tutor chat
+              New chat
             </Link>
           </Button>
           <Button asChild variant="outline" size="lg">

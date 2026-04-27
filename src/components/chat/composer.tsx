@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { Send, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import type { TutorMode } from "@/lib/modes";
 
 interface ComposerProps {
   value: string;
@@ -12,7 +13,15 @@ interface ComposerProps {
   onStop?: () => void;
   streaming: boolean;
   placeholder?: string;
+  mode?: TutorMode;
 }
+
+const MODE_HINTS: Partial<Record<TutorMode, string>> = {
+  CODE: "Paste code, describe a bug, or ask anything technical",
+  WRITE: "Describe what you want written, or paste text to improve",
+  RESEARCH: "Ask a deep question, paste an argument to critique, or request analysis",
+  BUSINESS: "Describe your business question or ask for strategic advice",
+};
 
 export function Composer({
   value,
@@ -21,6 +30,7 @@ export function Composer({
   onStop,
   streaming,
   placeholder,
+  mode,
 }: ComposerProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -28,7 +38,7 @@ export function Composer({
     const ta = ref.current;
     if (!ta) return;
     ta.style.height = "auto";
-    ta.style.height = `${Math.min(ta.scrollHeight, 240)}px`;
+    ta.style.height = `${Math.min(ta.scrollHeight, 300)}px`;
   }, [value]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -39,6 +49,9 @@ export function Composer({
   };
 
   const canSubmit = !streaming && value.trim().length > 0;
+  const hint = mode ? MODE_HINTS[mode] : undefined;
+  const charCount = value.length;
+  const nearLimit = charCount > 10000;
 
   return (
     <form
@@ -59,10 +72,10 @@ export function Composer({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={placeholder || "Ask the tutor anything…"}
+          placeholder={placeholder || hint || "Ask anything…"}
           rows={1}
           className="flex-1 resize-none bg-transparent px-2 py-2 text-[15px] leading-relaxed outline-none placeholder:text-muted-foreground scrollbar-thin"
-          style={{ maxHeight: 240 }}
+          style={{ maxHeight: 300 }}
         />
         {streaming && onStop ? (
           <Button type="button" size="icon" variant="outline" onClick={onStop} aria-label="Stop">
@@ -80,9 +93,16 @@ export function Composer({
           </Button>
         )}
       </div>
-      <p className="mt-1.5 px-2 text-center text-[11px] text-muted-foreground">
-        Splash cites every fact. ⏎ to send, ⇧⏎ for newline.
-      </p>
+      <div className="mt-1.5 flex items-center justify-between px-2">
+        <p className="text-[11px] text-muted-foreground">
+          ⏎ to send · ⇧⏎ for newline
+        </p>
+        {nearLimit && (
+          <p className={cn("text-[11px]", charCount > 11500 ? "text-destructive" : "text-muted-foreground")}>
+            {charCount.toLocaleString()} / 12,000
+          </p>
+        )}
+      </div>
     </form>
   );
 }

@@ -1,14 +1,11 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { MessagesSquare, Plus } from "lucide-react";
+import { MessagesSquare, Plus, Bot } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { EmptyState } from "@/components/ui/empty-state";
-import { Badge } from "@/components/ui/badge";
 import { NewChatLauncher } from "@/components/chat/new-chat-launcher";
+import { SessionList } from "@/components/chat/session-list";
 import { listSessions } from "@/services/tutorService";
 import { listCoursesForUser } from "@/services/courseService";
-import { formatRelativeTime } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -26,24 +23,32 @@ export default async function ChatListPage({
     listCoursesForUser(session.user.id),
   ]);
 
+  const tutorCount = sessions.filter((s) =>
+    ["LEARN", "PRACTICE", "REVISION", "DIRECT"].includes(s.mode)
+  ).length;
+  const assistantCount = sessions.length - tutorCount;
+
   return (
     <div className="space-y-8">
       <header>
-        <h1 className="font-serif text-3xl tracking-tight sm:text-4xl">Tutor chats</h1>
+        <h1 className="font-serif text-3xl tracking-tight sm:text-4xl">Chats</h1>
         <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-          Every chat is grounded in the course you pick — with citations back to the source, not a guess from the model's training data.
+          {sessions.length === 0
+            ? "Start a tutor chat grounded in your course materials, or use the AI assistant for anything else."
+            : `${sessions.length} chat${sessions.length !== 1 ? "s" : ""} · ${tutorCount} tutor · ${assistantCount} assistant`}
         </p>
       </header>
 
       <div className="grid gap-6 lg:grid-cols-5">
+        {/* ── New chat card ────────────────────────────────────── */}
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Plus className="h-4 w-4 text-primary" />
-              Start a new chat
+              New chat
             </CardTitle>
             <p className="text-sm text-muted-foreground">
-              Pick a course and mode. We'll create the session and drop you in.
+              Choose a mode. Tutor chats use your uploaded course notes. Assistant chats work on anything.
             </p>
           </CardHeader>
           <CardContent>
@@ -59,6 +64,7 @@ export default async function ChatListPage({
           </CardContent>
         </Card>
 
+        {/* ── Session list ─────────────────────────────────────── */}
         <Card className="lg:col-span-3">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -67,39 +73,33 @@ export default async function ChatListPage({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {sessions.length === 0 ? (
-              <EmptyState
-                icon={<MessagesSquare className="h-6 w-6" />}
-                title="No chats yet"
-                description="Start one on the left — pick a course and a tutor mode."
-              />
-            ) : (
-              <ul className="divide-y divide-border/70">
-                {sessions.map((s) => (
-                  <li key={s.id}>
-                    <Link
-                      href={`/chat/${s.id}`}
-                      className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0 transition-colors hover:text-primary"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <p className="truncate text-sm font-medium">{s.title}</p>
-                          <Badge variant="muted">{s.mode.toLowerCase()}</Badge>
-                        </div>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {s.course ? `${s.course.code} · ${s.course.title}` : "General"} · {s._count.messages} messages
-                        </p>
-                      </div>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {formatRelativeTime(s.updatedAt)}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <SessionList
+              sessions={sessions.map((s) => ({
+                id: s.id,
+                title: s.title,
+                mode: s.mode,
+                updatedAt: s.updatedAt,
+                course: s.course,
+                _count: s._count,
+              }))}
+            />
           </CardContent>
         </Card>
+      </div>
+
+      {/* ── Quick info banner ─────────────────────────────────────── */}
+      <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4">
+        <div className="flex items-start gap-3">
+          <Bot className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+          <div>
+            <p className="text-sm font-medium">9 modes available</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              <strong>Tutor modes</strong> (Learn, Practice, Revision, Direct) — grounded in your uploaded materials with citations.{" "}
+              <strong>Assistant modes</strong> (General, Code, Write, Research, Business) — general AI for any task.
+              Code and Research use a smarter model automatically.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );

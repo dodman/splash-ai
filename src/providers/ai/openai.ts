@@ -2,10 +2,24 @@ import OpenAI from "openai";
 import { streamText, generateText, generateObject } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import type { z } from "zod";
-import type { AIProvider } from "./types";
+import type { AIProvider, UsageSummary } from "./types";
 import type { AIMessage } from "@/types";
 
 const EMBED_BATCH = 100;
+
+/**
+ * Model tiers.
+ * FAST_MODEL  — gpt-4o-mini  (default, cheap, very capable for most tasks)
+ * SMART_MODEL — gpt-4o        (reasoning-heavy: CODE, RESEARCH, complex maths)
+ * Both are configurable via env so you can swap models without code changes.
+ */
+const FAST_MODEL = process.env.CHAT_MODEL ?? "gpt-4o-mini";
+const SMART_MODEL = process.env.REASONING_MODEL ?? "gpt-4o";
+
+/** Modes that benefit from the smarter model */
+const SMART_MODE_SET = new Set(["CODE", "RESEARCH"]);
+/** Message length threshold above which WRITE/BUSINESS/GENERAL escalate to smart model */
+const SMART_MSG_THRESHOLD = 800;
 
 export class OpenAIProvider implements AIProvider {
   readonly name = "openai";
@@ -16,7 +30,12 @@ export class OpenAIProvider implements AIProvider {
   private readonly raw: OpenAI;
   private readonly sdk: ReturnType<typeof createOpenAI>;
 
-  constructor(opts?: { apiKey?: string; chatModel?: string; embeddingModel?: string; embedDim?: number }) {
+  constructor(opts?: {
+    apiKey?: string;
+    chatModel?: string;
+    embeddingModel?: string;
+    embedDim?: number;
+  }) {
     const apiKey = opts?.apiKey ?? process.env.OPENAI_API_KEY;
     if (!apiKey) {
       throw new Error(
@@ -25,28 +44,65 @@ export class OpenAIProvider implements AIProvider {
     }
     this.raw = new OpenAI({ apiKey });
     this.sdk = createOpenAI({ apiKey });
-    this.chatModel = opts?.chatModel ?? process.env.CHAT_MODEL ?? "gpt-4o-mini";
+    this.chatModel = opts?.chatModel ?? FAST_MODEL;
     this.embeddingModel =
       opts?.embeddingModel ?? process.env.EMBEDDING_MODEL ?? "text-embedding-3-small";
     this.embedDim = opts?.embedDim ?? Number(process.env.EMBEDDING_DIM ?? 1536);
   }
 
-  async *chatStream(params: {
+  /** Pick the best model for the given mode + message length */
+  selectModel(mode: string, messageLength = 0): string {
+    if (SMART_MODE_SET.has(mode)) return SMART_MODEL;
+    // Long, complex messages in any mode get a bump
+    if (messageLength > SMART_MSG_THRESHOLD) return SMART_MODEL;
+    return FAST_MODEL;
+  }
+
+  chatStream(params: {
     messages: AIMessage[];
     system?: string;
     temperature?: number;
     maxTokens?: number;
-  }): AsyncIterable<string> {
+    model?: string;
+  }): AsyncIterable<string> & { usagePromise?: Promise<UsageSummary | null> } {
+    const model = params.model ?? this.chatModel;
+
+    // Resolve the usage promise from the streamText result
+    let resolveUsage!: (v: UsageSummary | null) => void;
+    const usagePromise = new Promise<UsageSummary | null>((res) => {
+      resolveUsage = res;
+    });
+
     const result = streamText({
-      model: this.sdk(this.chatModel),
+      model: this.sdk(model),
       system: params.system,
       messages: params.messages,
       temperature: params.temperature ?? 0.6,
       maxTokens: params.maxTokens,
+      onFinish({ usage }) {
+        if (usage) {
+          resolveUsage({
+            promptTokens: usage.promptTokens,
+            completionTokens: usage.completionTokens,
+            totalTokens: usage.totalTokens,
+          });
+        } else {
+          resolveUsage(null);
+        }
+      },
     });
-    for await (const delta of result.textStream) {
-      yield delta;
-    }
+
+    const iter = result.textStream[Symbol.asyncIterator]();
+
+    const asyncIterable: AsyncIterable<string> & { usagePromise?: Promise<UsageSummary | null> } =
+      {
+        [Symbol.asyncIterator]() {
+          return iter;
+        },
+        usagePromise,
+      };
+
+    return asyncIterable;
   }
 
   async chatText(params: {
@@ -54,9 +110,11 @@ export class OpenAIProvider implements AIProvider {
     system?: string;
     temperature?: number;
     maxTokens?: number;
+    model?: string;
   }): Promise<string> {
+    const model = params.model ?? this.chatModel;
     const { text } = await generateText({
-      model: this.sdk(this.chatModel),
+      model: this.sdk(model),
       system: params.system,
       messages: params.messages,
       temperature: params.temperature ?? 0.4,
@@ -70,9 +128,11 @@ export class OpenAIProvider implements AIProvider {
     system?: string;
     schema: z.ZodType<T>;
     temperature?: number;
+    model?: string;
   }): Promise<T> {
+    const model = params.model ?? this.chatModel;
     const { object } = await generateObject<T>({
-      model: this.sdk(this.chatModel),
+      model: this.sdk(model),
       system: params.system,
       messages: params.messages,
       schema: params.schema,

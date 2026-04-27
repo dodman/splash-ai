@@ -2,11 +2,16 @@ import { prisma } from "@/lib/prisma";
 import { getAIProvider } from "@/providers/ai";
 import { similaritySearch } from "./retrievalService";
 import { composeTutorPrompt } from "@/prompts/builder";
+import { composeAssistantPrompt } from "@/prompts/assistant-builder";
+import { isTutorMode } from "@/lib/modes";
 import { ForbiddenError, NotFoundError } from "@/lib/errors";
 import type { TutorMode } from "@prisma/client";
 import type { AIMessage, Citation, RetrievedChunk } from "@/types";
 
-const SESSION_CONTEXT_MESSAGES = 12;
+/** How many recent messages to include in context window */
+const SESSION_CONTEXT_MESSAGES = 20;
+
+// ── Session CRUD ──────────────────────────────────────────────────────────────
 
 export async function createSession(params: {
   userId: string;
@@ -46,7 +51,7 @@ export async function listSessions(userId: string, courseId?: string | null) {
       course: { select: { id: true, title: true, code: true } },
       _count: { select: { messages: true } },
     },
-    take: 50,
+    take: 100,
   });
 }
 
@@ -88,9 +93,12 @@ export async function updateSessionMeta(params: {
   });
 }
 
+// ── Context builder ───────────────────────────────────────────────────────────
+
 /**
- * Build the full runtime context for a tutor reply: system prompt, context
- * message, conversation history, retrieved chunks, citations.
+ * Build the full runtime context for a reply.
+ * - Tutor modes (LEARN/PRACTICE/REVISION/DIRECT): RAG + pedagogy prompts
+ * - Assistant modes (GENERAL/CODE/WRITE/RESEARCH/BUSINESS): no RAG, identity prompts
  */
 export async function buildTutorContext(params: {
   userId: string;
@@ -98,43 +106,70 @@ export async function buildTutorContext(params: {
   userMessage: string;
 }) {
   const session = await getSession(params.userId, params.sessionId);
+  const isAssistant = !isTutorMode(session.mode as Parameters<typeof isTutorMode>[0]);
 
   const [settings, weakTopics] = await Promise.all([
     prisma.userSettings.findUnique({ where: { userId: params.userId } }),
-    prisma.topicProgress.findMany({
-      where: {
-        userId: params.userId,
-        courseId: session.courseId ?? undefined,
-        mastery: { lt: 0.5 },
-      },
-      orderBy: { mastery: "asc" },
-      take: 5,
-      select: { topic: true },
-    }),
+    isAssistant
+      ? Promise.resolve([]) // assistant modes don't use weak topics
+      : prisma.topicProgress.findMany({
+          where: {
+            userId: params.userId,
+            courseId: session.courseId ?? undefined,
+            mastery: { lt: 0.5 },
+          },
+          orderBy: { mastery: "asc" },
+          take: 5,
+          select: { topic: true },
+        }),
   ]);
 
   const level = settings?.level ?? "INTERMEDIATE";
   const preferredLength = settings?.preferredLength ?? "NORMAL";
 
-  const retrievedChunks: RetrievedChunk[] = session.courseId
+  // ── RAG retrieval (tutor modes only) ──────────────────────────────────────
+  const retrievedChunks: RetrievedChunk[] = !isAssistant && session.courseId
     ? await similaritySearch({
         courseId: session.courseId,
         query: params.userMessage,
-        k: 6,
+        k: 8, // slightly more chunks for better coverage
       })
     : [];
 
-  const { system, contextMessage } = composeTutorPrompt({
-    mode: session.mode,
-    level,
-    preferredLength,
-    course: session.course
-      ? { title: session.course.title, code: session.course.code, degree: session.course.degree }
-      : null,
-    weakTopics: weakTopics.map((w) => w.topic),
-    retrievedChunks,
-  });
+  // ── System prompt ──────────────────────────────────────────────────────────
+  let system: string;
+  let contextMessage: string;
 
+  if (isAssistant) {
+    // Pure assistant — no RAG, mode-specific identity
+    system = composeAssistantPrompt({
+      mode: session.mode as TutorMode,
+      level,
+      preferredLength,
+      courseName: session.course?.title ?? null,
+    });
+    contextMessage = ""; // no context preamble needed for assistant modes
+  } else {
+    // Tutor mode — pedagogy + RAG
+    const built = composeTutorPrompt({
+      mode: session.mode as TutorMode,
+      level,
+      preferredLength,
+      course: session.course
+        ? {
+            title: session.course.title,
+            code: session.course.code,
+            degree: session.course.degree,
+          }
+        : null,
+      weakTopics: weakTopics.map((w) => w.topic),
+      retrievedChunks,
+    });
+    system = built.system;
+    contextMessage = built.contextMessage;
+  }
+
+  // ── Conversation history ───────────────────────────────────────────────────
   const history: AIMessage[] = session.messages
     .slice(-SESSION_CONTEXT_MESSAGES)
     .filter((m) => m.role !== "SYSTEM")
@@ -143,12 +178,19 @@ export async function buildTutorContext(params: {
       content: m.content,
     }));
 
-  const messages: AIMessage[] = [
-    { role: "user", content: contextMessage },
-    { role: "assistant", content: "Understood. I have the sources. Ready to help." },
-    ...history,
-    { role: "user", content: params.userMessage },
-  ];
+  let messages: AIMessage[];
+  if (isAssistant) {
+    // Simple conversation — no context message injection
+    messages = [...history, { role: "user", content: params.userMessage }];
+  } else {
+    // Tutor — inject RAG context as a priming exchange
+    messages = [
+      { role: "user", content: contextMessage },
+      { role: "assistant", content: "Understood. I have the course context and sources ready." },
+      ...history,
+      { role: "user", content: params.userMessage },
+    ];
+  }
 
   const citations: Citation[] = retrievedChunks.map((c, i) => ({
     index: i + 1,
@@ -159,10 +201,18 @@ export async function buildTutorContext(params: {
     excerpt: c.content.slice(0, 400),
   }));
 
-  return { session, system, messages, citations };
+  return {
+    session,
+    system,
+    messages,
+    citations,
+    isAssistant,
+    mode: session.mode,
+  };
 }
 
-/** Persist the user's message and return its id so the client can render immediately. */
+// ── Message persistence ───────────────────────────────────────────────────────
+
 export async function persistUserMessage(params: {
   sessionId: string;
   content: string;
@@ -176,35 +226,46 @@ export async function persistUserMessage(params: {
   });
 }
 
-/** Persist the assistant's full reply after streaming finishes. */
 export async function persistAssistantMessage(params: {
   sessionId: string;
   content: string;
   citations: Citation[];
+  tokensUsed?: number;
 }) {
-  await prisma.$transaction([
+  await Promise.all([
     prisma.chatMessage.create({
       data: {
         sessionId: params.sessionId,
         role: "ASSISTANT",
         content: params.content,
-        citations: params.citations as any,
+        citations: params.citations as never,
+        tokensUsed: params.tokensUsed ?? null,
       },
     }),
     prisma.chatSession.update({
       where: { id: params.sessionId },
-      data: { updatedAt: new Date() },
+      data: {
+        updatedAt: new Date(),
+        ...(params.tokensUsed
+          ? { totalTokensUsed: { increment: params.tokensUsed } }
+          : {}),
+      },
     }),
   ]);
 }
 
-/** Generate a 3–6 word session title from the first user message. */
-export async function generateSessionTitle(firstMessage: string): Promise<string> {
+// ── Title generation ──────────────────────────────────────────────────────────
+
+export async function generateSessionTitle(firstMessage: string, mode?: string): Promise<string> {
   try {
     const ai = getAIProvider();
+    const isCodeMode = mode === "CODE";
+    const system = isCodeMode
+      ? "Generate a concise 3–6 word title for a coding chat based on the user's first message. Return ONLY the title, no quotes, no punctuation at the end."
+      : "Generate a concise 3–6 word title for an AI chat based on the user's first message. Return ONLY the title, no quotes, no punctuation at the end.";
+
     const text = await ai.chatText({
-      system:
-        "You generate a concise 3–6 word title for a tutoring chat based on the student's first message. Return ONLY the title, no quotes, no punctuation at the end.",
+      system,
       messages: [{ role: "user", content: firstMessage.slice(0, 500) }],
       temperature: 0.3,
       maxTokens: 20,

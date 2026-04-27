@@ -8,7 +8,32 @@
       "mcp__Claude_in_Chrome__tabs_context_mcp",
       "Bash(git --version)",
       "Bash(gh --version)",
-      "Bash(vercel --version)"
+      "Bash(vercel --version)",
+      "Bash(gh repo *)",
+      "Bash(curl -s https://api.github.com/repos/nextlevelbuilder/ui-ux-pro-max-skill)",
+      "Bash(curl -s https://api.github.com/repos/nextlevelbuilder/ui-ux-pro-max-skill/contents/)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(x['type'], x['name']\\) for x in d]\")",
+      "Bash(curl -s https://api.github.com/repos/nextlevelbuilder/ui-ux-pro-max-skill/contents/.claude-plugin)",
+      "Bash(curl -s https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/main/README.md)",
+      "Bash(curl -s https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/main/.claude-plugin/marketplace.json)",
+      "Bash(curl -s https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/main/.claude-plugin/plugin.json)",
+      "Bash(curl -s https://api.github.com/repos/nextlevelbuilder/ui-ux-pro-max-skill/contents/.claude/skills)",
+      "Bash(claude mcp *)",
+      "Bash(command -v claude)",
+      "Read(//Applications/**)",
+      "Read(//usr/local/bin/**)",
+      "Read(//Users/macbook/**)",
+      "Read(//Users/macbook/.config/**)",
+      "Bash(python3 -c \"import json; d=json.load\\(open\\('/Users/macbook/.claude.json'\\)\\); print\\('top-level keys:', list\\(d.keys\\(\\)\\)\\); print\\('has mcpServers:', 'mcpServers' in d\\); print\\('mcpServers:', d.get\\('mcpServers', {}\\)\\)\")",
+      "Bash(npx --version)",
+      "Bash(vercel env *)",
+      "Bash(npx vercel *)",
+      "Bash(npx tsc *)",
+      "Bash(rm -rf .next)",
+      "Bash(npx next *)",
+      "Bash(git push *)",
+      "Bash(npx prisma *)",
+      "Bash(git add *)"
     ]
   }
 }

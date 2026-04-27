@@ -30,10 +30,17 @@ enum ResponseLength {
 }
 
 enum TutorMode {
+  // Tutor modes (RAG-grounded, pedagogy-first)
   LEARN
   PRACTICE
   REVISION
   DIRECT
+  // Assistant modes (general-purpose AI, no RAG required)
+  GENERAL
+  CODE
+  WRITE
+  RESEARCH
+  BUSINESS
 }
 
 enum MessageRole {
@@ -224,13 +231,14 @@ model MaterialChunk {
 // ============================================================================
 
 model ChatSession {
-  id        String    @id @default(cuid())
-  userId    String
-  courseId  String?
-  mode      TutorMode @default(LEARN)
-  title     String
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id               String    @id @default(cuid())
+  userId           String
+  courseId         String?
+  mode             TutorMode @default(LEARN)
+  title            String
+  totalTokensUsed  Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   course   Course?        @relation(fields: [courseId], references: [id], onDelete: SetNull)
