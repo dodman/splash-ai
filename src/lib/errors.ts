@@ -57,8 +57,9 @@ export function handleApiError(err: unknown): NextResponse {
   }
   // eslint-disable-next-line no-console
   console.error("[unhandled]", err);
+  const msg = err instanceof Error ? err.message : String(err);
   return NextResponse.json(
-    { error: "Something went wrong", code: "INTERNAL_ERROR" },
+    { error: msg || "Something went wrong", code: "INTERNAL_ERROR" },
     { status: 500 }
   );
 }

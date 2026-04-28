@@ -81,15 +81,8 @@ export class OpenAIProvider implements AIProvider {
         messages: params.messages,
         temperature: params.temperature ?? 0.6,
         maxTokens: params.maxTokens,
-      });
-
-      try {
-        for await (const delta of result.textStream) {
-          yield delta;
-        }
-        // After the stream ends, capture usage from the SDK's usage promise.
-        try {
-          const usage = await result.usage;
+        // onFinish fires on successful completion and resolves usage.
+        onFinish({ usage }) {
           resolveUsage(
             usage
               ? {
@@ -99,13 +92,21 @@ export class OpenAIProvider implements AIProvider {
                 }
               : null
           );
-        } catch {
-          resolveUsage(null);
+        },
+      });
+
+      try {
+        for await (const delta of result.textStream) {
+          yield delta;
         }
       } catch (err) {
-        resolveUsage(null);
+        resolveUsage(null); // ensure usage promise doesn't hang on error
         throw err;
       }
+
+      // Fallback: if onFinish was never called (e.g. API error with no tokens),
+      // resolve with null so the chat route never hangs waiting for usage.
+      resolveUsage(null);
     }
 
     // Attach usagePromise as a non-enumerable property on the generator object.

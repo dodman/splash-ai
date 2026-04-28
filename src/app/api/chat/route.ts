@@ -116,6 +116,9 @@ export async function POST(req: Request) {
       },
     });
   } catch (err) {
+    // Surface the real error message so we can diagnose production issues.
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[/api/chat outer]", msg, err);
     return handleApiError(err);
   }
 }
