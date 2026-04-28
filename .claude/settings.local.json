@@ -33,7 +33,19 @@
       "Bash(npx next *)",
       "Bash(git push *)",
       "Bash(npx prisma *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(curl -s -X POST https://splash-ai-v2-dodman-chakatalas-projects.vercel.app/api/register -H 'Content-Type: application/json' -d '{\"email\":\"test-debug@splash.ai\",\"name\":\"Test\",\"password\":\"testpassword123\"}')",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" https://splash-ai-v2.vercel.app/api/register -X POST -H \"Content-Type: application/json\" -d '{\"email\":\"x@x.com\",\"name\":\"x\",\"password\":\"xpassword\"}')",
+      "Bash(curl -s -X POST https://splash-ai-v2.vercel.app/api/register -H 'Content-Type: application/json' -d '{\"email\":\"debugtest99@splash.ai\",\"name\":\"Test\",\"password\":\"testpassword123\"}' -v)",
+      "Bash(npx tsx --env-file .env -e ' *)",
+      "Bash(node -e ' *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" https://splash-ai-v2.vercel.app/login)",
+      "Bash(curl -s -X POST https://splash-ai-v2.vercel.app/api/auth/callback/credentials -H 'Content-Type: application/x-www-form-urlencoded' -d 'email=dodmanc%40icloud.com&password=testpass&csrfToken=test')",
+      "Bash(curl -sv https://splash-ai-v2.vercel.app/api/auth/session)",
+      "Bash(curl -s https://splash-ai-v2.vercel.app/api/auth/session)",
+      "Bash(curl -s https://splash-ai-v2.vercel.app/api/auth/providers)",
+      "Bash(git commit -m 'fix: revert debug register route \\(DB_URL fixed in Vercel env\\) *)"
     ]
   }
 }
