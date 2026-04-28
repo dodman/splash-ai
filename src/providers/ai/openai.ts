@@ -66,43 +66,50 @@ export class OpenAIProvider implements AIProvider {
     model?: string;
   }): AsyncIterable<string> & { usagePromise?: Promise<UsageSummary | null> } {
     const model = params.model ?? this.chatModel;
+    const sdk = this.sdk;
 
-    // Resolve the usage promise from the streamText result
+    // External resolver so the generator can populate usage after streaming ends.
     let resolveUsage!: (v: UsageSummary | null) => void;
     const usagePromise = new Promise<UsageSummary | null>((res) => {
       resolveUsage = res;
     });
 
-    const result = streamText({
-      model: this.sdk(model),
-      system: params.system,
-      messages: params.messages,
-      temperature: params.temperature ?? 0.6,
-      maxTokens: params.maxTokens,
-      onFinish({ usage }) {
-        if (usage) {
-          resolveUsage({
-            promptTokens: usage.promptTokens,
-            completionTokens: usage.completionTokens,
-            totalTokens: usage.totalTokens,
-          });
-        } else {
+    async function* gen(): AsyncGenerator<string> {
+      const result = streamText({
+        model: sdk(model),
+        system: params.system,
+        messages: params.messages,
+        temperature: params.temperature ?? 0.6,
+        maxTokens: params.maxTokens,
+      });
+
+      try {
+        for await (const delta of result.textStream) {
+          yield delta;
+        }
+        // After the stream ends, capture usage from the SDK's usage promise.
+        try {
+          const usage = await result.usage;
+          resolveUsage(
+            usage
+              ? {
+                  promptTokens: usage.promptTokens,
+                  completionTokens: usage.completionTokens,
+                  totalTokens: usage.totalTokens,
+                }
+              : null
+          );
+        } catch {
           resolveUsage(null);
         }
-      },
-    });
+      } catch (err) {
+        resolveUsage(null);
+        throw err;
+      }
+    }
 
-    const iter = result.textStream[Symbol.asyncIterator]();
-
-    const asyncIterable: AsyncIterable<string> & { usagePromise?: Promise<UsageSummary | null> } =
-      {
-        [Symbol.asyncIterator]() {
-          return iter;
-        },
-        usagePromise,
-      };
-
-    return asyncIterable;
+    // Attach usagePromise as a non-enumerable property on the generator object.
+    return Object.assign(gen(), { usagePromise });
   }
 
   async chatText(params: {

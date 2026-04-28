@@ -6,7 +6,10 @@ import { handleApiError } from "@/lib/errors";
 
 const createSchema = z.object({
   courseId: z.string().cuid().optional().nullable(),
-  mode: z.enum(["LEARN", "PRACTICE", "REVISION", "DIRECT"]).default("LEARN"),
+  mode: z.enum([
+    "LEARN", "PRACTICE", "REVISION", "DIRECT",
+    "GENERAL", "CODE", "WRITE", "RESEARCH", "BUSINESS",
+  ]).default("GENERAL"),
   title: z.string().trim().min(1).max(120).optional(),
 });
 

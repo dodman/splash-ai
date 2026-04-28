@@ -44,6 +44,9 @@ export interface AssistantPromptContext {
   courseName?: string | null;
 }
 
+const NO_HYPHEN_RULE =
+  'Do NOT use hyphen bullets (lines starting with "- "). Use numbered lists (1. 2. 3.) or short prose paragraphs instead. Never use em-dashes (—) as sentence separators.';
+
 export function composeAssistantPrompt(ctx: AssistantPromptContext): string {
   const identity = IDENTITY_MAP[ctx.mode] ?? GENERAL_ASSISTANT_IDENTITY;
   const levelNote = LEVEL_SUFFIX[ctx.level];
@@ -53,7 +56,7 @@ export function composeAssistantPrompt(ctx: AssistantPromptContext): string {
     ? `Context: the user is studying "${ctx.courseName}". Tailor responses to this academic context when relevant.`
     : "";
 
-  return [identity, "", levelNote, lengthNote, courseNote]
+  return [identity, "", levelNote, lengthNote, NO_HYPHEN_RULE, courseNote]
     .filter(Boolean)
     .join("\n");
 }
