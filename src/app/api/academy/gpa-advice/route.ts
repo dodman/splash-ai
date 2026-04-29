@@ -16,6 +16,7 @@
 import { NextResponse } from "next/server";
 import { getAIProvider } from "@/providers/ai";
 import { z } from "zod";
+import { validateAcademyKey } from "../_shared";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -32,12 +33,14 @@ const courseSchema = z.object({
 
 const bodySchema = z.object({
   studentName: z.string().optional(),
-  gpaSummary: z.object({
-    cumulativeGPA: z.number().optional(),
-    totalCredits: z.number().optional(),
-    classification: z.string().optional(),
-    yearlyBreakdown: z.record(z.string(), z.unknown()).optional(),
-  }).optional(),
+  gpaSummary: z
+    .object({
+      cumulativeGPA: z.number().optional(),
+      totalCredits: z.number().optional(),
+      classification: z.string().optional(),
+      yearlyBreakdown: z.record(z.string(), z.unknown()).optional(),
+    })
+    .optional(),
   courses: z.array(courseSchema).default([]),
   question: z.string().trim().min(1).max(2000),
 });
@@ -46,13 +49,6 @@ const responseSchema = z.object({
   answer: z.string().min(10),
   recommendations: z.array(z.string()).min(0).max(8),
 });
-
-function validateApiKey(req: Request): boolean {
-  const key = req.headers.get("x-academy-key");
-  const secret = process.env.ACADEMY_API_KEY;
-  if (!secret) return false;
-  return key === secret;
-}
 
 function buildContext(body: z.infer<typeof bodySchema>): string {
   const lines: string[] = [];
@@ -74,7 +70,7 @@ function buildContext(body: z.infer<typeof bodySchema>): string {
     for (const c of body.courses) {
       const semPart = c.semester ? ` ${c.semester}` : "";
       lines.push(
-        `  - ${c.name ?? "(untitled)"} | ${c.year ?? "?"}${semPart} | ${c.courseType ?? "?"} course | ${c.creditHours ?? "?"} credits | ${c.grade ?? "?"} (${c.gradePoints ?? "?"} pts)`
+        `  ${c.name ?? "(untitled)"} | ${c.year ?? "?"}${semPart} | ${c.courseType ?? "?"} course | ${c.creditHours ?? "?"} credits | ${c.grade ?? "?"} (${c.gradePoints ?? "?"} pts)`
       );
     }
   }
@@ -83,7 +79,7 @@ function buildContext(body: z.infer<typeof bodySchema>): string {
 }
 
 export async function POST(req: Request) {
-  if (!validateApiKey(req)) {
+  if (!validateAcademyKey(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -99,6 +95,7 @@ export async function POST(req: Request) {
   const system = `You are Splash AI, a kind and practical academic advisor for university students.
 You explain academic performance in simple, encouraging language — never patronising, never dishonest.
 You ALWAYS reason from the student's actual GPA data, not generic advice.
+You are direct and specific: reference their real numbers, real courses, real grades.
 
 UNZA grade scale (5-point):
   A+ = 5  (90-100%)
@@ -115,8 +112,8 @@ Classifications:
   Pass         < 2.68
 
 Return:
-  - "answer": 2–4 short paragraphs in friendly student-facing language. Use the student's actual numbers.
-  - "recommendations": 3–5 concrete, actionable next steps tailored to their data.
+  "answer": 2–4 short paragraphs in friendly student-facing language. Use their actual numbers. Do NOT use hyphen bullets.
+  "recommendations": 3–5 concrete, actionable next steps tailored to their specific data.
 
 Do NOT invent courses or grades that aren't in the data.`;
 
@@ -128,11 +125,15 @@ ${body.question}`;
 
   try {
     const ai = getAIProvider();
+    // GPA analysis benefits from the smarter model for nuanced, personalised advice
+    const selectedModel = ai.selectModel("RESEARCH", body.question.length);
+
     const result = await ai.chatJSON({
       system,
       messages: [{ role: "user", content: userPrompt }],
       schema: responseSchema,
       temperature: 0.4,
+      model: selectedModel,
     });
 
     return NextResponse.json(result);

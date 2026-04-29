@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 
 const PUBLIC_PATHS = ["/", "/login", "/register"];
-const PUBLIC_API_PREFIXES = ["/api/auth", "/api/register"];
+const PUBLIC_API_PREFIXES = [
+  "/api/auth",
+  "/api/register",
+  "/api/academy", // server-to-server routes — protected by ACADEMY_API_KEY, not user session
+];
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;

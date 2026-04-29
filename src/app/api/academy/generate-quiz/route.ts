@@ -4,13 +4,13 @@
  * Protected by ACADEMY_API_KEY — no user session required.
  *
  * Body:
- *   courseId         string
- *   courseName       string
- *   topic            string   – focus topic (optional)
- *   materials        string[] – extracted text from uploaded materials
- *   numberOfQuestions number  – 3–20
- *   difficulty       string   – "easy" | "medium" | "hard"
- *   questionType     string   – "multiple-choice" | "true-false" | "short-answer"
+ *   courseId         string?
+ *   courseName       string?
+ *   topic            string?            – focus topic (optional)
+ *   materials        AcademyMaterial[]  – plain strings (legacy) or rich objects
+ *   numberOfQuestions number            – 3–20
+ *   difficulty       "easy" | "medium" | "hard"
+ *   questionType     "multiple-choice" | "true-false" | "short-answer"
  *
  * Response:
  *   { quiz: [ { question, options?, correctAnswer, explanation } ] }
@@ -19,15 +19,31 @@
 import { NextResponse } from "next/server";
 import { getAIProvider } from "@/providers/ai";
 import { z } from "zod";
+import {
+  validateAcademyKey,
+  normalizeMaterials,
+  buildMaterialContext,
+  type AcademyMaterial,
+} from "../_shared";
 
 export const runtime = "nodejs";
 export const maxDuration = 90;
+
+const materialSchema = z.union([
+  z.string(),
+  z.object({
+    id: z.string().optional(),
+    title: z.string().optional(),
+    filename: z.string().optional(),
+    text: z.string(),
+  }),
+]);
 
 const bodySchema = z.object({
   courseId: z.string().optional(),
   courseName: z.string().optional(),
   topic: z.string().trim().max(200).optional(),
-  materials: z.array(z.string()).default([]),
+  materials: z.array(materialSchema).default([]),
   numberOfQuestions: z.coerce.number().int().min(3).max(20).default(5),
   difficulty: z.enum(["easy", "medium", "hard"]).default("medium"),
   questionType: z
@@ -36,22 +52,17 @@ const bodySchema = z.object({
 });
 
 const quizSchema = z.object({
-  quiz: z.array(
-    z.object({
-      question: z.string().min(8),
-      options: z.array(z.string()).optional(),
-      correctAnswer: z.string().min(1),
-      explanation: z.string().min(10),
-    })
-  ).min(1),
+  quiz: z
+    .array(
+      z.object({
+        question: z.string().min(8),
+        options: z.array(z.string()).optional(),
+        correctAnswer: z.string().min(1),
+        explanation: z.string().min(10),
+      })
+    )
+    .min(1),
 });
-
-function validateApiKey(req: Request): boolean {
-  const key = req.headers.get("x-academy-key");
-  const secret = process.env.ACADEMY_API_KEY;
-  if (!secret) return false;
-  return key === secret;
-}
 
 function difficultyLabel(d: string): string {
   return { easy: "Beginner", medium: "Intermediate", hard: "Advanced" }[d] ?? "Intermediate";
@@ -72,7 +83,7 @@ function buildPrompt(params: {
   if (questionType === "multiple-choice") {
     typeInstructions =
       'All questions must be multiple-choice with EXACTLY 4 options (A, B, C, D). ' +
-      'The "correctAnswer" field must be the full text of the correct option.';
+      'The "correctAnswer" field must be the full text of the correct option (not a letter — the whole option text).';
   } else if (questionType === "true-false") {
     typeInstructions =
       'All questions must be True/False. The "options" field must be exactly ["True", "False"]. ' +
@@ -94,29 +105,18 @@ ${typeInstructions}
 CONTENT RULES:
 ${
   sourceAvailable
-    ? `Ground ALL questions in the COURSE MATERIALS below. Do not invent facts outside the materials.`
-    : `Generate questions based on general academic knowledge about the course/topic.`
+    ? "Ground ALL questions in the COURSE MATERIALS below. Do not invent facts outside the materials."
+    : "Generate questions based on general academic knowledge about the course/topic."
 }
-- The "explanation" must explain WHY the answer is correct (teach the concept).
-- Do not repeat questions.
+The "explanation" must explain WHY the answer is correct (teach the concept, not just restate it).
+Do not repeat questions. Make each question test a distinct concept or skill.
+Questions should range from recall to application where possible.
 
-${sourceAvailable ? `COURSE MATERIALS:\n${materialText}` : ""}
-
-Return ONLY valid JSON in this exact shape:
-{
-  "quiz": [
-    {
-      "question": "...",
-      "options": ["...", "...", "...", "..."],
-      "correctAnswer": "...",
-      "explanation": "..."
-    }
-  ]
-}`;
+${sourceAvailable ? `COURSE MATERIALS:\n${materialText}` : ""}`;
 }
 
 export async function POST(req: Request) {
-  if (!validateApiKey(req)) {
+  if (!validateAcademyKey(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -127,12 +127,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const { courseName, topic, materials, numberOfQuestions, difficulty, questionType } = body;
-
-  const materialText = materials
-    .filter(Boolean)
-    .join("\n\n---\n\n")
-    .slice(0, 20_000);
+  const { courseName, topic, numberOfQuestions, difficulty, questionType } = body;
+  const normalized = normalizeMaterials(body.materials as AcademyMaterial[]);
+  const materialText = buildMaterialContext(normalized);
 
   const prompt = buildPrompt({
     courseName,
@@ -145,15 +142,21 @@ export async function POST(req: Request) {
 
   try {
     const ai = getAIProvider();
+    // Quiz generation needs accuracy and creativity — always use the smart model
+    const selectedModel = ai.selectModel("CODE", 0);
+
     const result = await ai.chatJSON({
       system:
-        "You generate university-level quiz questions. Return ONLY the JSON object requested — no markdown fences, no extra text.",
+        "You are an expert academic assessment designer for university-level courses. " +
+        "You create rigorous, well-written quiz questions that test genuine understanding — not just memorisation. " +
+        "Return ONLY the JSON object requested — no markdown fences, no extra text.",
       messages: [{ role: "user", content: prompt }],
       schema: quizSchema,
       temperature: 0.6,
+      model: selectedModel,
     });
 
-    // Extra validation for MCQ: correctAnswer must be in options
+    // Extra validation for MCQ/TF: correctAnswer must be in options
     const validated = result.quiz.filter((q) => {
       if (questionType === "short-answer") return true;
       if (!q.options || q.options.length < 2) return false;
