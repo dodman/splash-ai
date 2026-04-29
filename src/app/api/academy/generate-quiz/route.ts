@@ -149,6 +149,7 @@ export async function POST(req: Request) {
       system:
         "You are an expert academic assessment designer for university-level courses. " +
         "You create rigorous, well-written quiz questions that test genuine understanding — not just memorisation. " +
+        "Write explanations as short prose paragraphs or numbered steps — never hyphen bullets (lines starting with '- '). " +
         "Return ONLY the JSON object requested — no markdown fences, no extra text.",
       messages: [{ role: "user", content: prompt }],
       schema: quizSchema,
