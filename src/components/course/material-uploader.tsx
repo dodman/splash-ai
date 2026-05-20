@@ -130,7 +130,7 @@ export function MaterialUploader({
       setMaterials((list) => [material as Material, ...list]);
 
       // Step 2: Upload directly to Vercel Blob (bypasses 4.5 MB body limit)
-      await blobUpload(file.name, file, {
+      const blob = await blobUpload(file.name, file, {
         access: "public",
         handleUploadUrl: "/api/upload/blob",
         clientPayload: JSON.stringify({
@@ -139,9 +139,22 @@ export function MaterialUploader({
         }),
       });
 
-      // onUploadCompleted runs server-side after blob is stored.
-      // In production it fires asynchronously (Vercel webhook).
-      // Polling will pick up the status change.
+      // Step 3: Trigger processing immediately — don't rely on Vercel's async webhook.
+      // Fire-and-forget: if it times out on a huge file, polling will catch READY.
+      fetch(`/api/materials/${material.id}/process`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ blobUrl: blob.url }),
+      }).then(async (res) => {
+        if (res.ok) {
+          const { material: updated } = await res.json().catch(() => ({}));
+          if (updated) {
+            setMaterials((list) =>
+              list.map((m) => (m.id === updated.id ? (updated as Material) : m))
+            );
+          }
+        }
+      }).catch(() => {/* polling handles it */});
     },
     [courseId]
   );

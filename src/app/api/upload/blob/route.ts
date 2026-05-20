@@ -5,7 +5,6 @@ import {
 import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { processMaterialFromUrl } from "@/services/uploadService";
 import { handleApiError } from "@/lib/errors";
 
 export const runtime = "nodejs";
@@ -52,10 +51,11 @@ export async function POST(request: Request): Promise<Response> {
           tokenPayload: JSON.stringify({ userId, materialId, filename: material.filename }),
         };
       },
+      // Intentionally lightweight — just store the blob URL.
+      // The client calls /api/materials/[id]/process directly after upload()
+      // resolves so it controls the timeout and gets a real response.
       onUploadCompleted: async ({ blob, tokenPayload }) => {
-        const { materialId, filename } = JSON.parse(tokenPayload || "{}");
-
-        // Update the material record with the real blob URL
+        const { materialId } = JSON.parse(tokenPayload || "{}");
         await prisma.courseMaterial.update({
           where: { id: materialId },
           data: {
@@ -63,14 +63,6 @@ export async function POST(request: Request): Promise<Response> {
             mimeType: blob.contentType || "application/octet-stream",
           },
         });
-
-        // Process the file: parse → chunk → embed
-        await processMaterialFromUrl(
-          materialId,
-          blob.url,
-          blob.contentType || "application/octet-stream",
-          filename
-        );
       },
     });
 

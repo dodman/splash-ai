@@ -45,7 +45,9 @@
       "Bash(curl -sv https://splash-ai-v2.vercel.app/api/auth/session)",
       "Bash(curl -s https://splash-ai-v2.vercel.app/api/auth/session)",
       "Bash(curl -s https://splash-ai-v2.vercel.app/api/auth/providers)",
-      "Bash(git commit -m 'fix: revert debug register route \\(DB_URL fixed in Vercel env\\) *)"
+      "Bash(git commit -m 'fix: revert debug register route \\(DB_URL fixed in Vercel env\\) *)",
+      "Bash(node -e \"console.log\\(require\\('./node_modules/ai/package.json'\\).version\\)\")",
+      "Bash(node -e \"console.log\\(require\\('./node_modules/@ai-sdk/openai/package.json'\\).version\\)\")"
     ]
   }
 }

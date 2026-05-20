@@ -10,7 +10,7 @@ const nextConfig: NextConfig = {
   // Pin the file-tracing root to this project to suppress the spurious
   // "multiple lockfiles detected" warning from the parent directory.
   outputFileTracingRoot: path.resolve(__dirname),
-  serverExternalPackages: ["pdf-parse", "mammoth"],
+  serverExternalPackages: ["pdf-parse", "mammoth", "unpdf"],
   eslint: {
     ignoreDuringBuilds: true,
   },

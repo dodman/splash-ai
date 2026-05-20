@@ -84,6 +84,34 @@ export async function parseDocument(
 }
 
 async function parsePdfBuffer(buffer: Buffer): Promise<ParsedDocument> {
+  // Try unpdf first (uses Mozilla PDF.js — significantly faster on large files).
+  // Fall back to pdf-parse if unpdf fails (e.g. encrypted / malformed PDFs).
+  try {
+    return await parsePdfWithUnpdf(buffer);
+  } catch {
+    return await parsePdfWithPdfParse(buffer);
+  }
+}
+
+async function parsePdfWithUnpdf(buffer: Buffer): Promise<ParsedDocument> {
+  const { extractText } = await import("unpdf");
+  // unpdf expects a Uint8Array
+  const uint8 = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  const { text, totalPages } = await extractText(uint8, { mergePages: false });
+
+  // text is string[] (one per page) when mergePages: false
+  const pagesArr = Array.isArray(text) ? text : [text as unknown as string];
+  const pages = pagesArr.map((t, i) => ({ page: i + 1, text: String(t) }));
+  const fullText = pages.map((p) => p.text).join("\n\n");
+
+  return {
+    text: fullText,
+    pages: pages.length ? pages : [{ page: 1, text: fullText }],
+    pageCount: totalPages ?? pages.length,
+  };
+}
+
+async function parsePdfWithPdfParse(buffer: Buffer): Promise<ParsedDocument> {
   // pdf-parse is CJS and its entrypoint tries to auto-load a test PDF when
   // it detects "require.main === module" — in Next/server runtime that can
   // trigger test-file reads. Import the internal module directly to avoid.
