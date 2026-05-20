@@ -4,7 +4,7 @@ import { generateQuiz, generateQuizInputSchema } from "@/services/quizService";
 import { handleApiError } from "@/lib/errors";
 import { rateLimit, LIMITS } from "@/lib/rate-limit";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 export async function POST(req: Request) {
   try {

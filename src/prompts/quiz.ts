@@ -11,7 +11,7 @@ export const quizQuestionSchema = z.object({
 
 export const quizGenerationSchema = z.object({
   title: z.string().min(3).max(120),
-  questions: z.array(quizQuestionSchema).min(1).max(20),
+  questions: z.array(quizQuestionSchema).min(1).max(150),
 });
 
 export type GeneratedQuiz = z.infer<typeof quizGenerationSchema>;
@@ -23,11 +23,20 @@ export function buildQuizGenerationPrompt(params: {
   types: Array<"MCQ" | "SHORT" | "SCENARIO">;
   sources: string;
   studentLevel: string;
+  /** When generating in parallel batches, pass the 0-based batch index and total. */
+  batchIndex?: number;
+  totalBatches?: number;
 }): string {
   const typesStr = params.types.join(", ");
+  const isBatched = params.totalBatches !== undefined && params.totalBatches > 1;
+  const batchNote = isBatched
+    ? `\nIMPORTANT: This is batch ${(params.batchIndex ?? 0) + 1} of ${params.totalBatches}. ` +
+      `Cover DIFFERENT concepts and phrasings than the other batches — spread coverage broadly across all topics in the sources.\n`
+    : "";
+
   return `
 Generate a ${params.count}-question quiz for the student based on the SOURCES below.
-
+${batchNote}
 ${params.courseTitle ? `Course: ${params.courseTitle}\n` : ""}${
     params.topic ? `Focus topic: ${params.topic}\n` : ""
   }Student level: ${params.studentLevel}

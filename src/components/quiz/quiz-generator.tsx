@@ -131,7 +131,7 @@ export function QuizGenerator({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {[3, 5, 7, 10, 15].map((n) => (
+            {[3, 5, 7, 10, 15, 20, 30, 50, 75, 100, 150].map((n) => (
               <SelectItem key={n} value={String(n)}>
                 {n} questions
               </SelectItem>

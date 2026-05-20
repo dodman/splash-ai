@@ -15,7 +15,7 @@ import type { QuestionType } from "@prisma/client";
 export const generateQuizInputSchema = z.object({
   courseId: z.string().cuid(),
   topic: z.string().trim().max(120).optional().or(z.literal("")).transform((v) => v || undefined),
-  count: z.coerce.number().int().min(3).max(15).default(5),
+  count: z.coerce.number().int().min(3).max(150).default(5),
   types: z
     .array(z.enum(["MCQ", "SHORT", "SCENARIO"]))
     .min(1)
@@ -46,10 +46,12 @@ export async function generateQuiz(userId: string, input: GenerateQuizInput) {
   const settings = await prisma.userSettings.findUnique({ where: { userId } });
   const level = settings?.level ?? "INTERMEDIATE";
 
+  // Retrieve more chunks for large quizzes so questions span broader material.
+  const retrievalK = Math.min(10 + Math.ceil(input.count / 10), 40);
   const chunks = await similaritySearch({
     courseId: input.courseId,
     query: input.topic ?? `${course.title} — exam-style key concepts`,
-    k: 10,
+    k: retrievalK,
   });
 
   if (chunks.length === 0) {
@@ -59,22 +61,48 @@ export async function generateQuiz(userId: string, input: GenerateQuizInput) {
   }
 
   const ai = getAIProvider();
-  const prompt = buildQuizGenerationPrompt({
-    courseTitle: course.title,
-    topic: input.topic,
-    count: input.count,
-    types: input.types,
-    sources: formatSourcesForPrompt(chunks),
-    studentLevel: level,
-  });
+  const sources = formatSourcesForPrompt(chunks);
 
-  const generated = await ai.chatJSON({
-    system:
-      "You generate rigorous university-level quizzes grounded in provided SOURCES. Output strictly matches the JSON schema.",
-    messages: [{ role: "user", content: prompt }],
-    schema: quizGenerationSchema,
-    temperature: 0.5,
-  });
+  // For counts > 30 GPT-4o-mini can't reliably fit everything in one output.
+  // Split into parallel batches of ≤ 30, then merge the results.
+  const BATCH_SIZE = 30;
+  const batches: number[] = [];
+  let remaining = input.count;
+  while (remaining > 0) {
+    batches.push(Math.min(remaining, BATCH_SIZE));
+    remaining -= BATCH_SIZE;
+  }
+
+  const batchResults = await Promise.all(
+    batches.map((batchCount, batchIdx) =>
+      ai.chatJSON({
+        system:
+          "You generate rigorous university-level quizzes grounded in provided SOURCES. Output strictly matches the JSON schema.",
+        messages: [
+          {
+            role: "user",
+            content: buildQuizGenerationPrompt({
+              courseTitle: course.title,
+              topic: input.topic,
+              count: batchCount,
+              types: input.types,
+              sources,
+              studentLevel: level,
+              batchIndex: batchIdx,
+              totalBatches: batches.length,
+            }),
+          },
+        ],
+        schema: quizGenerationSchema,
+        temperature: 0.5,
+      })
+    )
+  );
+
+  const generated = {
+    title: batchResults[0].title,
+    questions: batchResults.flatMap((r) => r.questions),
+  };
 
   // Validate MCQ answers are inside their options list
   const sanitized = generated.questions.filter((q) => {
