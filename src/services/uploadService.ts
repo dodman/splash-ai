@@ -12,8 +12,10 @@ const ALLOWED_MIME = new Set([
   "text/plain",
   "text/markdown",
   "application/octet-stream", // some browsers report this for .md
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
+  "application/msword", // .doc
 ]);
-const ALLOWED_EXT = /\.(pdf|txt|md|markdown)$/i;
+const ALLOWED_EXT = /\.(pdf|txt|md|markdown|docx|doc)$/i;
 
 const MAX_MB = Number(process.env.MAX_UPLOAD_MB ?? 25);
 
@@ -77,6 +79,63 @@ export async function createMaterialFromUpload(params: {
 
   const updated = await prisma.courseMaterial.findUnique({ where: { id: material.id } });
   return updated ?? material;
+}
+
+/**
+ * Create a pending material record without a file — used before a Vercel Blob
+ * client-side upload so the UI can show progress immediately.
+ */
+export async function prepareMaterialForBlobUpload(params: {
+  userId: string;
+  courseId: string;
+  filename: string;
+  mimeType: string;
+}): Promise<{ id: string; courseId: string; filename: string; mimeType: string; size: number; status: string; storageKey: string; error: null; createdAt: Date }> {
+  const course = await prisma.course.findUnique({ where: { id: params.courseId } });
+  if (!course) throw new NotFoundError("Course not found");
+  if (course.ownerId !== params.userId) throw new ForbiddenError();
+
+  const safeName = path.basename(params.filename).replace(/[^\w.\-]/g, "_");
+  const storageKey = `pending__${randomUUID()}__${safeName}`;
+
+  return prisma.courseMaterial.create({
+    data: {
+      courseId: params.courseId,
+      filename: params.filename,
+      mimeType: params.mimeType || "application/octet-stream",
+      size: 0,
+      storageKey,
+      status: "PENDING",
+    },
+  }) as any;
+}
+
+/**
+ * Process a material already stored in Vercel Blob.
+ * Called from the blob upload completion handler.
+ */
+export async function processMaterialFromUrl(
+  materialId: string,
+  blobUrl: string,
+  mimeType: string,
+  filename: string
+): Promise<void> {
+  // Update storageKey to the blob URL and fetch for processing
+  await prisma.courseMaterial.update({
+    where: { id: materialId },
+    data: { storageKey: blobUrl },
+  });
+
+  const res = await fetch(blobUrl);
+  if (!res.ok) {
+    await prisma.courseMaterial.update({
+      where: { id: materialId },
+      data: { status: "FAILED", error: `Could not fetch uploaded file (${res.status})` },
+    });
+    return;
+  }
+  const buffer = Buffer.from(await res.arrayBuffer());
+  return processMaterialFromBuffer(materialId, buffer, mimeType, filename);
 }
 
 /**

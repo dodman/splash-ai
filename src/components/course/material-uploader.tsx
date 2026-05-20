@@ -10,6 +10,7 @@ import {
   UploadCloud,
   XCircle,
 } from "lucide-react";
+import { upload as blobUpload } from "@vercel/blob/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
@@ -27,8 +28,13 @@ interface Material {
   createdAt: string | Date;
 }
 
-const ACCEPTED = ".pdf,.txt,.md,application/pdf,text/plain,text/markdown";
+// Accepted file types — includes .docx now
+const ACCEPTED =
+  ".pdf,.txt,.md,.docx,application/pdf,text/plain,text/markdown," +
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const MAX_MB = 25;
+// Files larger than this go through Vercel Blob (bypasses 4.5 MB Hobby limit)
+const BLOB_THRESHOLD_BYTES = 3.5 * 1024 * 1024;
 
 export function MaterialUploader({
   courseId,
@@ -75,6 +81,71 @@ export function MaterialUploader({
     return () => clearInterval(interval);
   }, [materials, needsPolling, router]);
 
+  const uploadSmall = useCallback(
+    async (file: File) => {
+      const body = new FormData();
+      body.append("file", file);
+      body.append("courseId", courseId);
+
+      const res = await fetch("/api/upload", { method: "POST", body });
+      if (!res.ok) {
+        const status = res.status;
+        if (status === 413) {
+          throw new Error(
+            "File is too large for direct upload (Vercel 4.5 MB limit). " +
+              "Try a smaller file or compress the PDF."
+          );
+        }
+        if (status === 504 || status === 524) {
+          throw new Error("Upload timed out. The file may be too large or complex — try a smaller one.");
+        }
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || `Upload failed (HTTP ${status})`);
+      }
+      const { material } = await res.json();
+      setMaterials((list) => [material, ...list]);
+    },
+    [courseId]
+  );
+
+  const uploadLarge = useCallback(
+    async (file: File) => {
+      // Step 1: Create a pending material record so polling can start
+      const prepRes = await fetch("/api/upload/prepare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: file.name,
+          mimeType: file.type || "application/octet-stream",
+          courseId,
+        }),
+      });
+      if (!prepRes.ok) {
+        const err = await prepRes.json().catch(() => ({}));
+        throw new Error(err?.error || "Could not prepare upload.");
+      }
+      const { material } = await prepRes.json();
+
+      // Show the pending material immediately so the user sees progress
+      setMaterials((list) => [material as Material, ...list]);
+
+      // Step 2: Upload directly to Vercel Blob (bypasses 4.5 MB body limit)
+      await blobUpload(file.name, file, {
+        access: "public",
+        handleUploadUrl: "/api/upload/blob",
+        clientPayload: JSON.stringify({
+          materialId: material.id,
+          courseId,
+        }),
+      });
+
+      // onUploadCompleted runs server-side after blob is stored.
+      // In production it fires asynchronously (Vercel webhook).
+      // Polling will pick up the status change.
+    },
+    [courseId]
+  );
+
   const upload = useCallback(
     async (file: File) => {
       if (file.size > MAX_MB * 1024 * 1024) {
@@ -85,22 +156,22 @@ export function MaterialUploader({
         });
         return;
       }
-      const body = new FormData();
-      body.append("file", file);
-      body.append("courseId", courseId);
+
       setUploading(true);
       try {
-        const res = await fetch("/api/upload", { method: "POST", body });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err?.error || "Upload failed");
+        if (file.size >= BLOB_THRESHOLD_BYTES) {
+          await uploadLarge(file);
+          toast({
+            title: "Upload started",
+            description: `${file.name} is uploading to cloud storage and will be processed shortly.`,
+          });
+        } else {
+          await uploadSmall(file);
+          toast({
+            title: "Upload started",
+            description: `${file.name} is being processed. We'll extract and embed the content.`,
+          });
         }
-        const { material } = await res.json();
-        setMaterials((list) => [material, ...list]);
-        toast({
-          title: "Upload started",
-          description: `${file.name} is being processed. We'll extract and embed the content.`,
-        });
       } catch (err) {
         toast({
           variant: "destructive",
@@ -111,7 +182,7 @@ export function MaterialUploader({
         setUploading(false);
       }
     },
-    [courseId, toast]
+    [courseId, toast, uploadSmall, uploadLarge]
   );
 
   const handleFiles = useCallback(
@@ -165,9 +236,9 @@ export function MaterialUploader({
           <UploadCloud className="h-5 w-5" />
         </div>
         <div>
-          <p className="text-sm font-medium">Drop a PDF, .md, or .txt here</p>
+          <p className="text-sm font-medium">Drop a PDF, Word doc, .md, or .txt here</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Up to {MAX_MB} MB. The tutor will parse, chunk, and embed it.
+            Up to {MAX_MB} MB. Large files are streamed to cloud storage automatically.
           </p>
         </div>
         <input
@@ -203,7 +274,7 @@ export function MaterialUploader({
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{m.filename}</p>
                 <p className="text-xs text-muted-foreground">
-                  {formatBytes(m.size)} · uploaded {formatRelativeTime(m.createdAt)}
+                  {m.size > 0 ? formatBytes(m.size) + " · " : ""}uploaded {formatRelativeTime(m.createdAt)}
                 </p>
                 {m.status === "FAILED" && m.error && (
                   <p className="mt-1 text-xs text-destructive">{m.error}</p>

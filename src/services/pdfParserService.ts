@@ -10,6 +10,14 @@ function looksLikeText(mime: string) {
   return TEXT_MIME_PREFIXES.some((p) => mime.startsWith(p)) || mime === "application/x-ndjson";
 }
 
+function looksLikeDocx(mime: string, filename: string) {
+  return (
+    mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    mime === "application/msword" ||
+    /\.docx?$/i.test(filename)
+  );
+}
+
 function splitPlainTextIntoPages(text: string): Array<{ page: number; text: string }> {
   const MAX_PER_PAGE = 6000;
   const pages: Array<{ page: number; text: string }> = [];
@@ -42,6 +50,10 @@ export async function parseDocumentFromBuffer(
 ): Promise<ParsedDocument> {
   if (mimeType === "application/pdf" || /\.pdf$/i.test(filename)) {
     return parsePdfBuffer(buffer);
+  }
+
+  if (looksLikeDocx(mimeType, filename)) {
+    return parseDocxBuffer(buffer);
   }
 
   if (looksLikeText(mimeType) || /\.(txt|md|markdown)$/i.test(filename)) {
@@ -96,5 +108,16 @@ async function parsePdfBuffer(buffer: Buffer): Promise<ParsedDocument> {
     text,
     pages: pages.length ? pages : [{ page: 1, text }],
     pageCount: result.numpages ?? pages.length ?? 1,
+  };
+}
+
+async function parseDocxBuffer(buffer: Buffer): Promise<ParsedDocument> {
+  const mammoth = (await import("mammoth")).default ?? (await import("mammoth"));
+  const result = await mammoth.extractRawText({ buffer });
+  const text = result.value || "";
+  return {
+    text,
+    pages: splitPlainTextIntoPages(text),
+    pageCount: 1,
   };
 }
