@@ -1,5 +1,3 @@
-import { getStorageProvider } from "@/providers/storage";
-
 export interface ParsedDocument {
   text: string;
   pages: Array<{ page: number; text: string }>;
@@ -33,14 +31,15 @@ function splitPlainTextIntoPages(text: string): Array<{ page: number; text: stri
   return pages;
 }
 
-export async function parseDocument(
-  storageKey: string,
+/**
+ * Parse a document directly from a Buffer — no filesystem required.
+ * This is the primary entry point used on Vercel where the filesystem is read-only.
+ */
+export async function parseDocumentFromBuffer(
+  buffer: Buffer,
   mimeType: string,
   filename: string
 ): Promise<ParsedDocument> {
-  const storage = getStorageProvider();
-  const buffer = await storage.read(storageKey);
-
   if (mimeType === "application/pdf" || /\.pdf$/i.test(filename)) {
     return parsePdfBuffer(buffer);
   }
@@ -55,6 +54,21 @@ export async function parseDocument(
   }
 
   throw new Error(`Unsupported file type: ${mimeType} (${filename})`);
+}
+
+/**
+ * @deprecated Use parseDocumentFromBuffer instead. Kept for any future
+ * local-disk storage provider (e.g. dev tooling).
+ */
+export async function parseDocument(
+  storageKey: string,
+  mimeType: string,
+  filename: string
+): Promise<ParsedDocument> {
+  const { getStorageProvider } = await import("@/providers/storage");
+  const storage = getStorageProvider();
+  const buffer = await storage.read(storageKey);
+  return parseDocumentFromBuffer(buffer, mimeType, filename);
 }
 
 async function parsePdfBuffer(buffer: Buffer): Promise<ParsedDocument> {
