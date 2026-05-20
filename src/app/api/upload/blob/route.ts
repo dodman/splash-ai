@@ -48,6 +48,7 @@ export async function POST(request: Request): Promise<Response> {
         return {
           allowedContentTypes: ALLOWED_CONTENT_TYPES,
           maximumSizeInBytes: 25 * 1024 * 1024, // 25 MB
+          addRandomSuffix: true, // prevent "blob already exists" on repeated uploads
           tokenPayload: JSON.stringify({ userId, materialId, filename: material.filename }),
         };
       },
