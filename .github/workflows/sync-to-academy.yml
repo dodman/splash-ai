@@ -1,0 +1,160 @@
+name: Sync AI engine → Splash Academy
+
+# Fires every time a commit lands on main in the Splash AI repo.
+# Copies the AI engine layer into a branch on splash-academy and opens a PR.
+# The PR is the safety net — review the diff before merging.
+#
+# Required setup (one-time):
+#   1. Create a GitHub Personal Access Token with `repo` scope at
+#      https://github.com/settings/tokens
+#   2. Add it as a repository secret named ACADEMY_SYNC_TOKEN in Splash AI:
+#      Settings → Secrets and variables → Actions → New repository secret
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Check out both repos ──────────────────────────────────────────────
+      - name: Checkout Splash AI
+        uses: actions/checkout@v4
+        with:
+          path: splash-ai
+
+      - name: Checkout Splash Academy
+        uses: actions/checkout@v4
+        with:
+          repository: dodman/splash-academy
+          token: ${{ secrets.ACADEMY_SYNC_TOKEN }}
+          path: splash-academy
+
+      # ── 2. Sync portable files (no import changes needed) ────────────────────
+
+      - name: Sync prompts
+        run: |
+          # AI prompts are the single source of truth — Academy imports these as-is
+          rsync -av --delete splash-ai/src/prompts/ splash-academy/src/prompts/
+
+      - name: Sync AI providers
+        run: |
+          rsync -av --delete splash-ai/src/providers/ai/ splash-academy/src/providers/ai/
+          rsync -av --delete splash-ai/src/providers/storage/ splash-academy/src/providers/storage/
+
+      - name: Sync UI primitives
+        run: |
+          rsync -av --delete splash-ai/src/components/ui/ splash-academy/src/components/ui/
+
+      - name: Sync feature components (chat, quiz, course)
+        run: |
+          # No --delete so Academy-only files (e.g. ChatPanel.tsx) are preserved
+          rsync -av splash-ai/src/components/chat/   splash-academy/src/components/chat/
+          rsync -av splash-ai/src/components/quiz/   splash-academy/src/components/quiz/
+          rsync -av splash-ai/src/components/course/ splash-academy/src/components/course/
+
+      - name: Sync hooks
+        run: |
+          rsync -av splash-ai/src/hooks/ splash-academy/src/hooks/
+
+      - name: Sync shared lib utilities
+        run: |
+          # Sync only the files that are pure utilities (no app-specific auth/db config)
+          cp splash-ai/src/lib/errors.ts    splash-academy/src/lib/errors.ts
+          cp splash-ai/src/lib/rate-limit.ts splash-academy/src/lib/rate-limit.ts
+          cp splash-ai/src/lib/utils.ts     splash-academy/src/lib/utils.ts
+
+      - name: Sync types
+        run: |
+          cp splash-ai/src/types/index.ts splash-academy/src/types/index.ts
+
+      # ── 3. Sync services with import patching ───────────────────────────────
+      #
+      #  Splash AI uses:  import { prisma } from "@/lib/prisma"
+      #  Splash Academy:  import { db }     from "@/lib/db"
+      #
+      #  We copy AI's flat src/services/ into Academy's src/services/ai/
+      #  (matching where Academy already has tutorService + retrievalService)
+      #  then rewrite the incompatible imports.
+
+      - name: Sync AI services
+        run: |
+          mkdir -p splash-academy/src/services/ai
+
+          for f in splash-ai/src/services/*.ts; do
+            name=$(basename "$f")
+            dest="splash-academy/src/services/ai/$name"
+            cp "$f" "$dest"
+
+            # Patch 1: swap prisma import
+            sed -i 's|import { prisma } from "@/lib/prisma"|import { db } from "@/lib/db"|g' "$dest"
+
+            # Patch 2: swap Prisma client package (type imports)
+            sed -i 's|from "@prisma/client"|from "@/generated/prisma/client"|g' "$dest"
+
+            # Patch 3: rewrite prisma.* calls to db.*
+            sed -i 's/\bprisma\./db\./g' "$dest"
+
+            # Patch 4: fix relative service imports (they stay in the same ai/ folder)
+            # e.g. from "./retrievalService" stays valid — no change needed
+          done
+
+      # ── 4. Detect changes ────────────────────────────────────────────────────
+
+      - name: Check for changes
+        id: changes
+        run: |
+          cd splash-academy
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "changed=true"  >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Nothing changed — skipping PR."
+          fi
+
+      # ── 5. Open a PR on Splash Academy ──────────────────────────────────────
+
+      - name: Create PR in Splash Academy
+        if: steps.changes.outputs.changed == 'true'
+        working-directory: splash-academy
+        env:
+          GH_TOKEN: ${{ secrets.ACADEMY_SYNC_TOKEN }}
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "Splash AI Sync Bot"
+
+          BRANCH="sync/ai-$(date +%Y%m%d-%H%M%S)"
+          AI_SHA=$(cd ../splash-ai && git rev-parse --short HEAD)
+
+          git checkout -b "$BRANCH"
+          git add -A
+          git commit -m "chore: sync AI engine from splash-ai@${AI_SHA}"
+          git push -u origin "$BRANCH"
+
+          gh pr create \
+            --title "🔄 AI engine sync from Splash AI (${AI_SHA})" \
+            --body "$(cat <<'PRBODY'
+Automated sync triggered by a push to **splash-ai / main**.
+
+### What was synced
+| Directory / file | Notes |
+|---|---|
+| \`src/prompts/\` | AI tutor prompts — always overwritten |
+| \`src/providers/ai/\` | OpenAI provider abstraction |
+| \`src/providers/storage/\` | Storage provider abstraction |
+| \`src/components/ui/\` | UI primitives |
+| \`src/components/{chat,quiz,course}/\` | Feature components (Academy-only files preserved) |
+| \`src/hooks/\` | Shared hooks |
+| \`src/lib/{errors,rate-limit,utils}.ts\` | Pure utilities |
+| \`src/types/index.ts\` | Shared types |
+| \`src/services/ai/*.ts\` | AI engine services — imports patched (`prisma`→`db`, `@prisma/client`→`@/generated/prisma/client`) |
+
+### Before merging
+- [ ] Check that TypeScript builds cleanly (`npm run build`)
+- [ ] Verify the AI chat and quiz features still work in Academy
+- [ ] Resolve any merge conflicts introduced by Academy-specific changes
+PRBODY
+)" \
+            --base main
