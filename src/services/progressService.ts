@@ -50,7 +50,7 @@ export async function updateTopicMastery(params: {
 }
 
 export async function getProgressSummary(userId: string): Promise<ProgressSummary> {
-  const [sessions, attempts, topicProgress] = await Promise.all([
+  const [sessions, attempts, topicProgress, courses] = await Promise.all([
     prisma.chatSession.findMany({
       where: { userId },
       include: {
@@ -67,9 +67,12 @@ export async function getProgressSummary(userId: string): Promise<ProgressSummar
       take: 20,
     }),
     prisma.topicProgress.findMany({ where: { userId }, orderBy: { mastery: "asc" } }),
+    prisma.course.findMany({
+      where: { ownerId: userId },
+      select: { id: true, title: true, code: true },
+    }),
   ]);
 
-  // Approximate study time: 1 message ≈ 30s of engagement.
   const totalMessages = sessions.reduce((sum, s) => sum + s._count.messages, 0);
   const hoursStudied = Math.round((totalMessages * 30) / 3600 * 10) / 10;
 
@@ -117,6 +120,51 @@ export async function getProgressSummary(userId: string): Promise<ProgressSummar
 
   const streakDays = computeStreak(sessions.map((s) => s.updatedAt));
 
+  // Per-course progress: group topics by course
+  const courseMap = new Map(courses.map((c) => [c.id, c]));
+  const courseProgressMap = new Map<string, ProgressSummary["courseProgress"][number]>();
+
+  for (const tp of topicProgress) {
+    if (!tp.courseId) continue;
+    const c = courseMap.get(tp.courseId);
+    if (!c) continue;
+
+    let entry = courseProgressMap.get(tp.courseId);
+    if (!entry) {
+      entry = {
+        courseId: c.id,
+        courseTitle: c.title,
+        courseCode: c.code,
+        topics: [],
+        averageMastery: 0,
+      };
+      courseProgressMap.set(tp.courseId, entry);
+    }
+    entry.topics.push({ topic: tp.topic, mastery: tp.mastery });
+  }
+
+  // Also include courses with no topics yet
+  for (const c of courses) {
+    if (!courseProgressMap.has(c.id)) {
+      courseProgressMap.set(c.id, {
+        courseId: c.id,
+        courseTitle: c.title,
+        courseCode: c.code,
+        topics: [],
+        averageMastery: 0,
+      });
+    }
+  }
+
+  const courseProgress = Array.from(courseProgressMap.values()).map((cp) => {
+    cp.averageMastery =
+      cp.topics.length > 0
+        ? cp.topics.reduce((sum, t) => sum + t.mastery, 0) / cp.topics.length
+        : 0;
+    cp.topics.sort((a, b) => a.mastery - b.mastery);
+    return cp;
+  });
+
   return {
     hoursStudied,
     sessionsCompleted,
@@ -125,8 +173,13 @@ export async function getProgressSummary(userId: string): Promise<ProgressSummar
     streakDays,
     weakTopics,
     strongTopics,
+    courseProgress,
     recentActivity: recentActivity.slice(0, 10),
   };
+}
+
+export async function resetAllProgress(userId: string) {
+  await prisma.topicProgress.deleteMany({ where: { userId } });
 }
 
 function dayKey(d: Date): string {

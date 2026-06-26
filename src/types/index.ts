@@ -39,6 +39,14 @@ export type QuizResponseEntry = {
   feedback?: string;
 };
 
+export type CourseProgress = {
+  courseId: string;
+  courseTitle: string;
+  courseCode: string;
+  topics: Array<{ topic: string; mastery: number }>;
+  averageMastery: number;
+};
+
 export type ProgressSummary = {
   hoursStudied: number;
   sessionsCompleted: number;
@@ -47,6 +55,7 @@ export type ProgressSummary = {
   streakDays: number;
   weakTopics: Array<{ topic: string; mastery: number; courseId?: string | null }>;
   strongTopics: Array<{ topic: string; mastery: number }>;
+  courseProgress: CourseProgress[];
   recentActivity: Array<{
     kind: "chat" | "quiz";
     title: string;

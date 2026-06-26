@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { QuizGenerator } from "@/components/quiz/quiz-generator";
+import { QuizListActions } from "@/components/quiz/quiz-list-actions";
 import { listQuizzes } from "@/services/quizService";
 import { listCoursesForUser } from "@/services/courseService";
 import { formatRelativeTime } from "@/lib/utils";
@@ -62,18 +63,19 @@ export default async function QuizListPage({
         </Card>
 
         <Card className="lg:col-span-3">
-          <CardHeader>
+          <CardHeader className="flex-row items-center justify-between space-y-0">
             <CardTitle className="flex items-center gap-2">
               <ClipboardCheck className="h-4 w-4 text-fuchsia-500" />
               Your quizzes
             </CardTitle>
+            {quizzes.length > 0 && <QuizListActions />}
           </CardHeader>
           <CardContent>
             {quizzes.length === 0 ? (
               <EmptyState
                 icon={<ClipboardCheck className="h-6 w-6" />}
                 title="No quizzes yet"
-                description="Generate your first quiz on the left. We'll build 3–15 questions from your uploaded materials."
+                description="Generate your first quiz on the left. We'll build 3–150 questions from your uploaded materials."
               />
             ) : (
               <ul className="divide-y divide-border/70">

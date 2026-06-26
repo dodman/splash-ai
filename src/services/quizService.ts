@@ -177,6 +177,10 @@ export async function deleteQuiz(userId: string, quizId: string) {
   await prisma.quiz.delete({ where: { id: quizId } });
 }
 
+export async function deleteAllQuizzes(userId: string) {
+  await prisma.quiz.deleteMany({ where: { userId } });
+}
+
 export const quizSubmissionSchema = z.object({
   responses: z
     .array(
