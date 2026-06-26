@@ -91,7 +91,17 @@ export default async function CourseDetailPage({
               Generate quiz
             </Link>
           </Button>
-          <CourseActions courseId={course.id} />
+          <CourseActions
+            courseId={course.id}
+            course={{
+              title: course.title,
+              code: course.code,
+              degree: course.degree,
+              year: course.year,
+              semester: course.semester,
+              lecturer: course.lecturer,
+            }}
+          />
         </div>
       </header>
 
