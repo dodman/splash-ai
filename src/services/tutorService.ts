@@ -75,6 +75,10 @@ export async function deleteSession(userId: string, sessionId: string) {
   await prisma.chatSession.delete({ where: { id: sessionId } });
 }
 
+export async function deleteAllSessions(userId: string) {
+  await prisma.chatSession.deleteMany({ where: { userId } });
+}
+
 export async function updateSessionMeta(params: {
   userId: string;
   sessionId: string;

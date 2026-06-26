@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
-import { createSession, listSessions } from "@/services/tutorService";
+import { createSession, listSessions, deleteAllSessions } from "@/services/tutorService";
 import { handleApiError } from "@/lib/errors";
 
 const createSchema = z.object({
@@ -22,6 +22,16 @@ export async function GET(req: Request) {
       courseIdParam === null ? undefined : courseIdParam === "" ? null : courseIdParam;
     const sessions = await listSessions(userId, courseId);
     return NextResponse.json({ sessions });
+  } catch (err) {
+    return handleApiError(err);
+  }
+}
+
+export async function DELETE() {
+  try {
+    const userId = await requireUserId();
+    await deleteAllSessions(userId);
+    return NextResponse.json({ ok: true });
   } catch (err) {
     return handleApiError(err);
   }
