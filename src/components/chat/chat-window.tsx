@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, BookOpen, Sparkles, Trash2, Download } from "lucide-react";
+import { ArrowLeft, BookOpen, Sparkles, Trash2, Download, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Message } from "./message";
 import { Composer } from "./composer";
@@ -95,6 +95,30 @@ export function ChatWindow({
     }
   };
 
+  const resetChat = async () => {
+    if (!confirm("Start a new conversation? Your current chat will stay in history.")) return;
+    try {
+      const res = await fetch("/api/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseId: course?.id ?? null,
+          mode,
+        }),
+      });
+      if (!res.ok) throw new Error("Could not create session");
+      const { session } = await res.json();
+      router.push(`/chat/${session.id}`);
+      router.refresh();
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Could not reset",
+        description: err instanceof Error ? err.message : "Try again.",
+      });
+    }
+  };
+
   const exportChat = () => {
     const lines = [
       `# ${sessionTitle}`,
@@ -158,15 +182,26 @@ export function ChatWindow({
         </div>
         <div className="flex items-center gap-1">
           {messages.length > 0 && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={exportChat}
-              aria-label="Export chat"
-              title="Download as Markdown"
-            >
-              <Download className="h-4 w-4" />
-            </Button>
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={resetChat}
+                aria-label="New conversation"
+                title="Start fresh"
+              >
+                <RotateCcw className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={exportChat}
+                aria-label="Export chat"
+                title="Download as Markdown"
+              >
+                <Download className="h-4 w-4" />
+              </Button>
+            </>
           )}
           <div className="hidden sm:block">
             <ModeSwitcher value={mode} onChange={changeMode} disabled={streaming} />
